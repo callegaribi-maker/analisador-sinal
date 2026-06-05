@@ -342,7 +342,7 @@ if len(sorted_peaks) >= 2:
             fig_orig.update_layout(
                 width=650, height=650,
                 title="Ciclos sobrepostos — tempo relativo ao início de cada ciclo",
-                xaxis_title=f"{x_col} (relativo)",
+                xaxis_title="Tempo (ms)",
                 yaxis_title=y_col,
                 hovermode="x unified",
                 plot_bgcolor="white",
@@ -359,6 +359,9 @@ if len(sorted_peaks) >= 2:
             N_NORM = 300
             x_norm = np.linspace(0, 1, N_NORM)
             all_y_norm = []
+
+            durations_pre = [cyc["duration"] for cyc in cycles_seg]
+            mean_dur_pre  = float(np.mean(durations_pre))
 
             fig_norm = go.Figure()
             for i, cyc in enumerate(cycles_seg):
@@ -396,7 +399,7 @@ if len(sorted_peaks) >= 2:
 
             fig_norm.update_layout(
                 width=650, height=650,
-                title="Ciclos normalizados (0→1) com curva média ± 1 DP",
+                title="Ciclos normalizados (0 → 1) com curva média ± 1 DP",
                 xaxis_title="Fase normalizada",
                 yaxis_title=y_col,
                 hovermode="x unified",
@@ -410,16 +413,16 @@ if len(sorted_peaks) >= 2:
             st.plotly_chart(fig_norm, use_container_width=False)
 
         # ── Estatísticas de duração ───────────────────────────────────────────
-        durations = [cyc["duration"] for cyc in cycles_seg]
-        mean_dur = float(np.mean(durations))
-        std_dur  = float(np.std(durations))
+        durations = durations_pre
+        mean_dur  = mean_dur_pre
+        std_dur   = float(np.std(durations))
         cv_dur   = std_dur / mean_dur * 100 if mean_dur else 0
 
         st.subheader("⏱️ Estatísticas de duração")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Nº de ciclos", len(cycles_seg))
-        m2.metric("Duração média", f"{mean_dur:.1f}")
-        m3.metric("Desvio padrão", f"{std_dur:.1f}")
+        m2.metric("Duração média", f"{mean_dur:.1f} ms")
+        m3.metric("Desvio padrão", f"{std_dur:.1f} ms")
         m4.metric("CV (%)", f"{cv_dur:.1f}")
 
         # ── Matriz para exportar ──────────────────────────────────────────────
