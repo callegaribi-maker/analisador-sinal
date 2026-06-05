@@ -1,3 +1,4 @@
+import io
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -57,7 +58,18 @@ with st.sidebar:
                 format_func=lambda s: {"," :"Vírgula , (padrão BR)", ".":"Ponto . (padrão EN)"}[s],
             )
             try:
-                df = pd.read_csv(uploaded, sep=sep, header=int(header_row), decimal=decimal)
+                raw = uploaded.read()
+                try:
+                    text = raw.decode("utf-8-sig")
+                except Exception:
+                    text = raw.decode("latin-1")
+                df = pd.read_csv(
+                    io.StringIO(text),
+                    sep=sep,
+                    header=int(header_row),
+                    decimal=decimal,
+                    engine="python",
+                )
             except Exception as e:
                 st.error(f"Erro ao ler CSV: {e}")
 
@@ -309,4 +321,3 @@ if len(sorted_peaks) >= 2:
             "text/csv",
             use_container_width=True,
         )
-
