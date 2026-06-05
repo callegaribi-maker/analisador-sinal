@@ -51,8 +51,13 @@ with st.sidebar:
             header_row = st.number_input(
                 "Linha do cabeçalho (0 = primeira)", min_value=0, max_value=20, value=0
             )
+            decimal = st.selectbox(
+                "Decimal",
+                [",", "."],
+                format_func=lambda s: {"," :"Vírgula , (padrão BR)", ".":"Ponto . (padrão EN)"}[s],
+            )
             try:
-                df = pd.read_csv(uploaded, sep=sep, header=int(header_row))
+                df = pd.read_csv(uploaded, sep=sep, header=int(header_row), decimal=decimal)
             except Exception as e:
                 st.error(f"Erro ao ler CSV: {e}")
 
