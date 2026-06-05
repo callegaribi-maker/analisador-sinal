@@ -505,6 +505,87 @@ if st.session_state.saved_results:
     } for r in st.session_state.saved_results])
     st.dataframe(summary, use_container_width=True, hide_index=True)
 
+    # ── Gráfico da resultante geral ───────────────────────────────────────────
+    if len(st.session_state.saved_results) >= 2:
+        st.subheader("📈 Resultantes individuais + curva geral do grupo")
+
+        PALETTE2 = [
+            "#4C78A8","#F58518","#E45756","#72B7B2","#54A24B",
+            "#EECA3B","#B279A2","#FF9DA6","#9D755D","#BAB0AC",
+            "#4C78A8","#F58518","#E45756","#72B7B2","#54A24B",
+            "#4C78A8","#F58518","#E45756","#72B7B2","#54A24B",
+        ]
+
+        # Interpolar todas na mesma grade 0-1
+        N_G = 300
+        x_g = np.linspace(0, 1, N_G)
+        all_medias = []
+        fig_grupo = go.Figure()
+
+        for i, r in enumerate(st.session_state.saved_results):
+            rdf = r["resultante_df"]
+            fase = rdf["fase_norm"].values
+            media_ind = rdf["Media"].values
+            y_interp = np.interp(x_g, fase, media_ind)
+            all_medias.append(y_interp)
+            fig_grupo.add_trace(go.Scatter(
+                x=x_g, y=y_interp,
+                mode="lines", name=r["name"],
+                line=dict(color=PALETTE2[i % len(PALETTE2)], width=1.5),
+                opacity=0.6,
+            ))
+
+        grand_mean = np.mean(all_medias, axis=0)
+        grand_std  = np.std(all_medias, axis=0)
+
+        # Banda ±1 DP geral
+        fig_grupo.add_trace(go.Scatter(
+            x=np.concatenate([x_g, x_g[::-1]]),
+            y=np.concatenate([grand_mean + grand_std, (grand_mean - grand_std)[::-1]]),
+            fill="toself", fillcolor="rgba(0,0,0,0.08)",
+            line=dict(color="rgba(0,0,0,0)"),
+            name="±1 DP geral", showlegend=True,
+        ))
+        # Curva geral
+        fig_grupo.add_trace(go.Scatter(
+            x=x_g, y=grand_mean,
+            mode="lines", name="Média geral",
+            line=dict(color="black", width=3),
+        ))
+
+        fig_grupo.update_layout(
+            width=650, height=650,
+            title="Resultantes individuais e curva geral do grupo",
+            xaxis_title="Fase normalizada",
+            yaxis_title=y_col if y_col else "Sinal",
+            hovermode="x unified",
+            plot_bgcolor="white", paper_bgcolor="white",
+            legend=dict(orientation="h", y=-0.25),
+            margin=dict(l=10, r=10, t=50, b=100),
+        )
+        fig_grupo.update_xaxes(showgrid=True, gridcolor="#eee")
+        fig_grupo.update_yaxes(showgrid=True, gridcolor="#eee")
+        st.plotly_chart(fig_grupo, use_container_width=False)
+
+        # Exportar resultante geral
+        grand_df = pd.DataFrame({
+            "fase_norm":       np.round(x_g, 5),
+            "Media_geral":     np.round(grand_mean, 6),
+            "DP_geral":        np.round(grand_std, 6),
+            "Media_+DP":       np.round(grand_mean + grand_std, 6),
+            "Media_-DP":       np.round(grand_mean - grand_std, 6),
+        })
+        buf_grand = BytesIO()
+        with pd.ExcelWriter(buf_grand, engine="openpyxl") as writer:
+            grand_df.to_excel(writer, sheet_name="Resultante_Geral", index=False)
+        st.download_button(
+            "⬇️ Exportar resultante geral do grupo (Excel)",
+            buf_grand.getvalue(),
+            "resultante_geral.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
     col_exp, col_clear = st.columns([2, 1])
     with col_exp:
         buf_all = BytesIO()
@@ -525,4 +606,3 @@ if st.session_state.saved_results:
         if st.button("🗑️ Limpar acumulados", use_container_width=True):
             st.session_state.saved_results = []
             st.rerun()
-
