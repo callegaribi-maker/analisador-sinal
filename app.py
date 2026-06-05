@@ -1,6 +1,6 @@
 import io
-import streamlit as st
 from io import BytesIO
+import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -81,7 +81,6 @@ with st.sidebar:
 
         if df is not None:
             cols = df.columns.tolist()
-            # Default X = DURACAO, Y = ACC EIXO Y if present
             default_x = "DURACAO" if "DURACAO" in cols else cols[0]
             default_y = "ACC EIXO Y" if "ACC EIXO Y" in cols else cols[-1]
             x_col = st.selectbox(
@@ -96,7 +95,6 @@ with st.sidebar:
             )
 
     st.divider()
-
     st.subheader("🔍 Detecção automática")
     prominence_pct = st.slider("Proeminência mínima (%)", 1, 80, 20)
     min_dist_pct = st.slider("Distância mínima entre picos (%)", 1, 30, 5)
@@ -104,7 +102,10 @@ with st.sidebar:
         st.session_state.trigger_auto = True
 
     st.divider()
-    snap_pct = st.slider("Snap para máximo local (%)", 0, 10, 2)
+    snap_pct = st.slider(
+        "Snap para máximo local (%)", 0, 10, 2,
+        help="Janela ao redor do X digitado para encaixar no máximo local",
+    )
 
 # ── Sem arquivo ───────────────────────────────────────────────────────────────
 if df is None:
@@ -112,12 +113,12 @@ if df is None:
     with st.expander("📖 Como usar"):
         st.markdown(
             """
-            1. **Carregue** um arquivo CSV ou TXT na barra lateral
+            1. **Carregue** um arquivo CSV, TXT ou Excel na barra lateral
             2. Verifique as colunas X e Y selecionadas
-            3. **Clique no sinal** para adicionar picos (triângulo vermelho)
-            4. **Clique em um pico** para removê-lo
-            5. Use **Auto-detectar** para encontrar picos automaticamente
-            6. Baixe a tabela de ciclos em CSV
+            3. Use **Auto-detectar** para encontrar picos automaticamente
+            4. **Clique no triângulo** para remover um pico
+            5. Use o campo abaixo do gráfico para **adicionar** um pico manualmente
+            6. Baixe ciclos, picos e matriz em Excel
             """
         )
     st.stop()
@@ -146,7 +147,7 @@ if st.session_state.trigger_auto:
 
 sorted_peaks = sorted(st.session_state.peaks, key=lambda p: p["x"])
 
-# ── Figura ────────────────────────────────────────────────────────────────────
+# ── Figura principal ──────────────────────────────────────────────────────────
 fig = go.Figure()
 
 cycle_colors = ["rgba(99,200,99,0.12)", "rgba(99,149,255,0.12)"]
@@ -188,8 +189,8 @@ if sorted_peaks:
 
 fig.update_layout(
     height=500,
-    title="<b>Clique no sinal</b> para adicionar pico · <b>Clique no triângulo</b> para remover",
-    xaxis_title=x_col,
+    title="<b>Clique no triângulo</b> para remover pico",
+    xaxis_title="Tempo (ms)",
     yaxis_title=y_col,
     hovermode="closest",
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -200,19 +201,15 @@ fig.update_layout(
 fig.update_xaxes(showgrid=True, gridcolor="#eee", zeroline=False)
 fig.update_yaxes(showgrid=True, gridcolor="#eee", zeroline=False)
 
-# ── Gráfico com remoção por clique no triângulo ───────────────────────────────
+# ── Remoção por clique no triângulo ──────────────────────────────────────────
 selected = st.plotly_chart(
-    fig,
-    on_select="rerun",
-    selection_mode="points",
-    key="signal_plot",
-    use_container_width=True,
+    fig, on_select="rerun", selection_mode="points",
+    key="signal_plot", use_container_width=True,
 )
 
 if selected and selected.selection and selected.selection.points:
     pt = selected.selection.points[0]
-    curve = pt.get("curve_number", 0)
-    if sorted_peaks and curve == 1:
+    if sorted_peaks and pt.get("curve_number", 0) == 1:
         pt_idx = pt.get("point_index", 0)
         if 0 <= pt_idx < len(sorted_peaks):
             target_x = sorted_peaks[pt_idx]["x"]
@@ -225,17 +222,15 @@ if selected and selected.selection and selected.selection.points:
 
 # ── Adicionar pico manualmente ────────────────────────────────────────────────
 st.subheader("➕ Adicionar pico")
-st.caption("Use o zoom do gráfico para encontrar o X do pico desejado, depois digite aqui.")
+st.caption("Use o zoom do gráfico para encontrar o X desejado, depois digite aqui.")
 col_add, col_clear = st.columns([2, 1])
 
 with col_add:
-    x_step = float(np.ptp(x) / n * 10)
     add_x = st.number_input(
         "Valor X do pico",
-        min_value=float(x.min()),
-        max_value=float(x.max()),
+        min_value=float(x.min()), max_value=float(x.max()),
         value=float(x[n // 2]),
-        step=x_step,
+        step=float(np.ptp(x) / n * 10),
         format="%.1f",
     )
     if st.button("➕ Adicionar pico nesse X", use_container_width=True):
@@ -274,7 +269,7 @@ if len(sorted_peaks) >= 2:
             "Ciclo": i + 1,
             "X início": round(xs, 3),
             "X fim": round(xe, 3),
-            "Duração": round(xe - xs, 3),
+            "Duração (ms)": round(xe - xs, 3),
             "Pontos": int(mask.sum()),
             "Máx.": round(float(cy.max()), 5) if cy.size else "—",
             "Mín.": round(float(cy.min()), 5) if cy.size else "—",
@@ -301,7 +296,7 @@ if len(sorted_peaks) >= 2:
         use_container_width=True,
     )
 
-    # ── Extrair segmentos de ciclo ────────────────────────────────────────────
+    # ── Segmentos de ciclo ────────────────────────────────────────────────────
     cycles_seg = []
     for i in range(len(sorted_peaks) - 1):
         xs, xe = sorted_peaks[i]["x"], sorted_peaks[i + 1]["x"]
@@ -310,8 +305,7 @@ if len(sorted_peaks) >= 2:
         if len(cx) >= 2:
             cycles_seg.append({
                 "label": f"C{i + 1}",
-                "x": cx,
-                "y": cy2,
+                "x": cx, "y": cy2,
                 "duration": xe - xs,
             })
 
@@ -327,15 +321,14 @@ if len(sorted_peaks) >= 2:
 
         tab1, tab2 = st.tabs(["⏱️ Duração original", "📐 Duração normalizada (0 → 1)"])
 
-        # ── Tab 1: duração original ───────────────────────────────────────────
+        # Tab 1 — duração original
         with tab1:
             fig_orig = go.Figure()
             for i, cyc in enumerate(cycles_seg):
                 x_rel = cyc["x"] - cyc["x"][0]
                 fig_orig.add_trace(go.Scatter(
                     x=x_rel, y=cyc["y"],
-                    mode="lines",
-                    name=cyc["label"],
+                    mode="lines", name=cyc["label"],
                     line=dict(color=PALETTE[i % len(PALETTE)], width=1.2),
                     opacity=0.75,
                 ))
@@ -345,8 +338,7 @@ if len(sorted_peaks) >= 2:
                 xaxis_title="Tempo (ms)",
                 yaxis_title=y_col,
                 hovermode="x unified",
-                plot_bgcolor="white",
-                paper_bgcolor="white",
+                plot_bgcolor="white", paper_bgcolor="white",
                 legend=dict(orientation="h", y=-0.2),
                 margin=dict(l=10, r=10, t=50, b=80),
             )
@@ -354,7 +346,7 @@ if len(sorted_peaks) >= 2:
             fig_orig.update_yaxes(showgrid=True, gridcolor="#eee")
             st.plotly_chart(fig_orig, use_container_width=False)
 
-        # ── Tab 2: duração normalizada ────────────────────────────────────────
+        # Tab 2 — normalizado
         with tab2:
             N_NORM = 300
             x_norm = np.linspace(0, 1, N_NORM)
@@ -370,8 +362,7 @@ if len(sorted_peaks) >= 2:
                 all_y_norm.append(y_interp)
                 fig_norm.add_trace(go.Scatter(
                     x=x_norm, y=y_interp,
-                    mode="lines",
-                    name=cyc["label"],
+                    mode="lines", name=cyc["label"],
                     line=dict(color=PALETTE[i % len(PALETTE)], width=1),
                     opacity=0.45,
                 ))
@@ -379,21 +370,16 @@ if len(sorted_peaks) >= 2:
             mean_y = np.mean(all_y_norm, axis=0)
             std_y  = np.std(all_y_norm, axis=0)
 
-            # Banda ±1 DP
             fig_norm.add_trace(go.Scatter(
                 x=np.concatenate([x_norm, x_norm[::-1]]),
                 y=np.concatenate([mean_y + std_y, (mean_y - std_y)[::-1]]),
-                fill="toself",
-                fillcolor="rgba(0,0,0,0.08)",
+                fill="toself", fillcolor="rgba(0,0,0,0.08)",
                 line=dict(color="rgba(0,0,0,0)"),
-                name="±1 DP",
-                showlegend=True,
+                name="±1 DP", showlegend=True,
             ))
-            # Curva média
             fig_norm.add_trace(go.Scatter(
                 x=x_norm, y=mean_y,
-                mode="lines",
-                name="Média",
+                mode="lines", name="Média",
                 line=dict(color="black", width=2.5),
             ))
 
@@ -403,8 +389,7 @@ if len(sorted_peaks) >= 2:
                 xaxis_title="Fase normalizada",
                 yaxis_title=y_col,
                 hovermode="x unified",
-                plot_bgcolor="white",
-                paper_bgcolor="white",
+                plot_bgcolor="white", paper_bgcolor="white",
                 legend=dict(orientation="h", y=-0.2),
                 margin=dict(l=10, r=10, t=50, b=80),
             )
@@ -412,11 +397,11 @@ if len(sorted_peaks) >= 2:
             fig_norm.update_yaxes(showgrid=True, gridcolor="#eee")
             st.plotly_chart(fig_norm, use_container_width=False)
 
-        # ── Estatísticas de duração ───────────────────────────────────────────
+        # ── Estatísticas ──────────────────────────────────────────────────────
         durations = durations_pre
         mean_dur  = mean_dur_pre
         std_dur   = float(np.std(durations))
-        cv_dur   = std_dur / mean_dur * 100 if mean_dur else 0
+        cv_dur    = std_dur / mean_dur * 100 if mean_dur else 0
 
         st.subheader("⏱️ Estatísticas de duração")
         m1, m2, m3, m4 = st.columns(4)
@@ -425,9 +410,10 @@ if len(sorted_peaks) >= 2:
         m3.metric("Desvio padrão", f"{std_dur:.1f} ms")
         m4.metric("CV (%)", f"{cv_dur:.1f}")
 
-        # ── Matriz para exportar ──────────────────────────────────────────────
-        st.subheader("📤 Matriz de ciclos normalizados")
+        # ── Exportar ──────────────────────────────────────────────────────────
+        st.subheader("📤 Exportar matrizes")
 
+        # Matriz completa
         matrix = {"fase_norm": np.round(x_norm, 5)}
         for i, (cyc, y_interp) in enumerate(zip(cycles_seg, all_y_norm)):
             matrix[cyc["label"]] = np.round(y_interp, 6)
@@ -435,24 +421,46 @@ if len(sorted_peaks) >= 2:
         matrix["DP"]        = np.round(std_y, 6)
         matrix["Media_+DP"] = np.round(mean_y + std_y, 6)
         matrix["Media_-DP"] = np.round(mean_y - std_y, 6)
-
         matrix_df = pd.DataFrame(matrix)
-        st.dataframe(matrix_df.head(10), use_container_width=True, hide_index=True)
-        st.caption(f"{N_NORM} pontos × {len(cycles_seg) + 4} colunas (ciclos + média + DP + bandas)")
 
-        buf_matrix = BytesIO()
-        with pd.ExcelWriter(buf_matrix, engine="openpyxl") as writer:
-            matrix_df.to_excel(writer, sheet_name="Matriz", index=False)
-            # Aba de estatísticas de duração
-            stats_df = pd.DataFrame({
-                "Ciclo": [cyc["label"] for cyc in cycles_seg] + ["MÉDIA", "DP"],
-                "Duração": [round(cyc["duration"], 3) for cyc in cycles_seg] + [round(mean_dur, 3), round(std_dur, 3)],
-            })
-            stats_df.to_excel(writer, sheet_name="Durações", index=False)
-        st.download_button(
-            "⬇️ Exportar matriz completa (Excel)",
-            buf_matrix.getvalue(),
-            "matriz_ciclos.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
+        # Só a resultante
+        resultante_df = pd.DataFrame({
+            "fase_norm":  np.round(x_norm, 5),
+            "Media":      np.round(mean_y, 6),
+            "DP":         np.round(std_y, 6),
+            "Media_+DP":  np.round(mean_y + std_y, 6),
+            "Media_-DP":  np.round(mean_y - std_y, 6),
+        })
+
+        # Preview da matriz
+        st.dataframe(matrix_df.head(8), use_container_width=True, hide_index=True)
+        st.caption(f"{N_NORM} pontos × {len(cycles_seg) + 4} colunas")
+
+        dl1, dl2 = st.columns(2)
+        with dl1:
+            buf_matrix = BytesIO()
+            with pd.ExcelWriter(buf_matrix, engine="openpyxl") as writer:
+                matrix_df.to_excel(writer, sheet_name="Matriz", index=False)
+                stats_df = pd.DataFrame({
+                    "Ciclo": [cyc["label"] for cyc in cycles_seg] + ["MÉDIA", "DP"],
+                    "Duração (ms)": [round(d, 3) for d in durations] + [round(mean_dur, 3), round(std_dur, 3)],
+                })
+                stats_df.to_excel(writer, sheet_name="Durações", index=False)
+            st.download_button(
+                "⬇️ Matriz completa (Excel)",
+                buf_matrix.getvalue(),
+                "matriz_ciclos.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        with dl2:
+            buf_res = BytesIO()
+            with pd.ExcelWriter(buf_res, engine="openpyxl") as writer:
+                resultante_df.to_excel(writer, sheet_name="Resultante", index=False)
+            st.download_button(
+                "⬇️ Só a resultante (Excel)",
+                buf_res.getvalue(),
+                "resultante.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
