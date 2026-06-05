@@ -199,7 +199,7 @@ fig.update_layout(
 fig.update_xaxes(showgrid=True, gridcolor="#eee", zeroline=False)
 fig.update_yaxes(showgrid=True, gridcolor="#eee", zeroline=False)
 
-# ── Seleção nativa do Streamlit ───────────────────────────────────────────────
+# ── Gráfico com remoção por clique no triângulo ───────────────────────────────
 selected = st.plotly_chart(
     fig,
     on_select="rerun",
@@ -210,46 +210,55 @@ selected = st.plotly_chart(
 
 if selected and selected.selection and selected.selection.points:
     pt = selected.selection.points[0]
-    click_x = pt.get("x")
     curve = pt.get("curve_number", 0)
-    x_tol = np.ptp(x) * 0.015
-
     if sorted_peaks and curve == 1:
         pt_idx = pt.get("point_index", 0)
         if 0 <= pt_idx < len(sorted_peaks):
             target_x = sorted_peaks[pt_idx]["x"]
+            x_tol = np.ptp(x) * 0.01
             st.session_state.peaks = [
                 p for p in st.session_state.peaks
                 if abs(p["x"] - target_x) > x_tol * 0.1
             ]
-    else:
-        idx_click = int(np.argmin(np.abs(x - click_x)))
+            st.rerun()
+
+# ── Adicionar pico manualmente ────────────────────────────────────────────────
+st.subheader("➕ Adicionar pico")
+st.caption("Use o zoom do gráfico para encontrar o X do pico desejado, depois digite aqui.")
+col_add, col_clear = st.columns([2, 1])
+
+with col_add:
+    x_step = float(np.ptp(x) / n * 10)
+    add_x = st.number_input(
+        "Valor X do pico",
+        min_value=float(x.min()),
+        max_value=float(x.max()),
+        value=float(x[n // 2]),
+        step=x_step,
+        format="%.1f",
+    )
+    if st.button("➕ Adicionar pico nesse X", use_container_width=True):
+        idx_click = int(np.argmin(np.abs(x - add_x)))
         half_w = max(1, int(n * snap_pct / 100))
         i0 = max(0, idx_click - half_w)
         i1 = min(n - 1, idx_click + half_w)
         idx_max = i0 + int(np.argmax(y[i0: i1 + 1]))
         new_x, new_y = float(x[idx_max]), float(y[idx_max])
-
+        x_tol = np.ptp(x) * 0.01
         if not any(abs(p["x"] - new_x) < x_tol for p in st.session_state.peaks):
             st.session_state.peaks.append({"x": new_x, "y": new_y})
+            st.rerun()
+        else:
+            st.warning("Já existe um pico próximo desse X.")
 
-    st.rerun()
-
-# ── Controles ─────────────────────────────────────────────────────────────────
-c1, c2, c3 = st.columns([1, 1, 4])
-with c1:
-    if st.button("🗑️ Limpar tudo", use_container_width=True):
+with col_clear:
+    st.write("")
+    st.write("")
+    if st.button("🗑️ Limpar todos", use_container_width=True):
         st.session_state.peaks = []
         st.rerun()
-with c2:
-    if st.button("↩️ Último pico", use_container_width=True) and sorted_peaks:
-        last_x = sorted_peaks[-1]["x"]
-        st.session_state.peaks = [
-            p for p in st.session_state.peaks if p["x"] != last_x
-        ]
-        st.rerun()
-with c3:
-    st.caption(f"**{len(sorted_peaks)} pico(s) selecionado(s)**")
+
+st.caption(f"**{len(sorted_peaks)} pico(s)** · Clique no triângulo vermelho para remover")
 
 # ── Tabela de ciclos ──────────────────────────────────────────────────────────
 if len(sorted_peaks) >= 2:
