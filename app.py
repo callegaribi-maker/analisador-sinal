@@ -303,3 +303,146 @@ if len(sorted_peaks) >= 2:
             "picos.csv", "text/csv",
             use_container_width=True,
         )
+
+    # ── Extrair segmentos de ciclo ────────────────────────────────────────────
+    cycles_seg = []
+    for i in range(len(sorted_peaks) - 1):
+        xs, xe = sorted_peaks[i]["x"], sorted_peaks[i + 1]["x"]
+        mask = (x >= xs) & (x <= xe)
+        cx, cy2 = x[mask], y[mask]
+        if len(cx) >= 2:
+            cycles_seg.append({
+                "label": f"C{i + 1}",
+                "x": cx,
+                "y": cy2,
+                "duration": xe - xs,
+            })
+
+    if len(cycles_seg) >= 2:
+        st.divider()
+        st.header("📈 Análise de Ciclos")
+
+        PALETTE = [
+            "#4C78A8","#F58518","#E45756","#72B7B2","#54A24B",
+            "#EECA3B","#B279A2","#FF9DA6","#9D755D","#BAB0AC",
+            "#4C78A8","#F58518","#E45756","#72B7B2","#54A24B",
+        ]
+
+        tab1, tab2 = st.tabs(["⏱️ Duração original", "📐 Duração normalizada (0 → 1)"])
+
+        # ── Tab 1: duração original ───────────────────────────────────────────
+        with tab1:
+            fig_orig = go.Figure()
+            for i, cyc in enumerate(cycles_seg):
+                x_rel = cyc["x"] - cyc["x"][0]
+                fig_orig.add_trace(go.Scatter(
+                    x=x_rel, y=cyc["y"],
+                    mode="lines",
+                    name=cyc["label"],
+                    line=dict(color=PALETTE[i % len(PALETTE)], width=1.2),
+                    opacity=0.75,
+                ))
+            fig_orig.update_layout(
+                height=420,
+                title="Ciclos sobrepostos — tempo relativo ao início de cada ciclo",
+                xaxis_title=f"{x_col} (relativo)",
+                yaxis_title=y_col,
+                hovermode="x unified",
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                legend=dict(orientation="h", y=-0.2),
+                margin=dict(l=10, r=10, t=50, b=10),
+            )
+            fig_orig.update_xaxes(showgrid=True, gridcolor="#eee")
+            fig_orig.update_yaxes(showgrid=True, gridcolor="#eee")
+            st.plotly_chart(fig_orig, use_container_width=True)
+
+        # ── Tab 2: duração normalizada ────────────────────────────────────────
+        with tab2:
+            N_NORM = 300
+            x_norm = np.linspace(0, 1, N_NORM)
+            all_y_norm = []
+
+            fig_norm = go.Figure()
+            for i, cyc in enumerate(cycles_seg):
+                x_rel = (cyc["x"] - cyc["x"][0]) / (cyc["x"][-1] - cyc["x"][0])
+                y_interp = np.interp(x_norm, x_rel, cyc["y"])
+                all_y_norm.append(y_interp)
+                fig_norm.add_trace(go.Scatter(
+                    x=x_norm, y=y_interp,
+                    mode="lines",
+                    name=cyc["label"],
+                    line=dict(color=PALETTE[i % len(PALETTE)], width=1),
+                    opacity=0.45,
+                ))
+
+            mean_y = np.mean(all_y_norm, axis=0)
+            std_y  = np.std(all_y_norm, axis=0)
+
+            # Banda ±1 DP
+            fig_norm.add_trace(go.Scatter(
+                x=np.concatenate([x_norm, x_norm[::-1]]),
+                y=np.concatenate([mean_y + std_y, (mean_y - std_y)[::-1]]),
+                fill="toself",
+                fillcolor="rgba(0,0,0,0.08)",
+                line=dict(color="rgba(0,0,0,0)"),
+                name="±1 DP",
+                showlegend=True,
+            ))
+            # Curva média
+            fig_norm.add_trace(go.Scatter(
+                x=x_norm, y=mean_y,
+                mode="lines",
+                name="Média",
+                line=dict(color="black", width=2.5),
+            ))
+
+            fig_norm.update_layout(
+                height=420,
+                title="Ciclos normalizados (0→1) com curva média ± 1 DP",
+                xaxis_title="Fase normalizada",
+                yaxis_title=y_col,
+                hovermode="x unified",
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                legend=dict(orientation="h", y=-0.2),
+                margin=dict(l=10, r=10, t=50, b=10),
+            )
+            fig_norm.update_xaxes(showgrid=True, gridcolor="#eee")
+            fig_norm.update_yaxes(showgrid=True, gridcolor="#eee")
+            st.plotly_chart(fig_norm, use_container_width=True)
+
+        # ── Estatísticas de duração ───────────────────────────────────────────
+        durations = [cyc["duration"] for cyc in cycles_seg]
+        mean_dur = float(np.mean(durations))
+        std_dur  = float(np.std(durations))
+        cv_dur   = std_dur / mean_dur * 100 if mean_dur else 0
+
+        st.subheader("⏱️ Estatísticas de duração")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Nº de ciclos", len(cycles_seg))
+        m2.metric("Duração média", f"{mean_dur:.1f}")
+        m3.metric("Desvio padrão", f"{std_dur:.1f}")
+        m4.metric("CV (%)", f"{cv_dur:.1f}")
+
+        # ── Matriz para exportar ──────────────────────────────────────────────
+        st.subheader("📤 Matriz de ciclos normalizados")
+
+        matrix = {"fase_norm": np.round(x_norm, 5)}
+        for i, (cyc, y_interp) in enumerate(zip(cycles_seg, all_y_norm)):
+            matrix[cyc["label"]] = np.round(y_interp, 6)
+        matrix["Media"]     = np.round(mean_y, 6)
+        matrix["DP"]        = np.round(std_y, 6)
+        matrix["Media_+DP"] = np.round(mean_y + std_y, 6)
+        matrix["Media_-DP"] = np.round(mean_y - std_y, 6)
+
+        matrix_df = pd.DataFrame(matrix)
+        st.dataframe(matrix_df.head(10), use_container_width=True, hide_index=True)
+        st.caption(f"{N_NORM} pontos × {len(cycles_seg) + 4} colunas (ciclos + média + DP + bandas)")
+
+        st.download_button(
+            "⬇️ Exportar matriz completa (CSV)",
+            matrix_df.to_csv(index=False).encode("utf-8"),
+            "matriz_ciclos.csv", "text/csv",
+            use_container_width=True,
+        )
