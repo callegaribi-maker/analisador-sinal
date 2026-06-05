@@ -19,6 +19,8 @@ if "peaks" not in st.session_state:
     st.session_state.peaks = []
 if "trigger_auto" not in st.session_state:
     st.session_state.trigger_auto = False
+if "saved_results" not in st.session_state:
+    st.session_state.saved_results = []   # lista de dicts {name, resultante_df, mean_dur, std_dur, n_cycles}
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -464,3 +466,63 @@ if len(sorted_peaks) >= 2:
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
+
+        # ── Salvar resultado desta pessoa ─────────────────────────────────────
+        st.divider()
+        st.subheader("💾 Acumular resultados")
+        person_name = st.text_input(
+            "Nome desta pessoa (para identificar no Excel)",
+            value=uploaded.name.rsplit(".", 1)[0] if uploaded else "Pessoa",
+        )
+        if st.button("💾 Salvar resultado desta pessoa", use_container_width=True, type="primary"):
+            already = [r["name"] for r in st.session_state.saved_results]
+            if person_name in already:
+                # substituir
+                st.session_state.saved_results = [
+                    r for r in st.session_state.saved_results if r["name"] != person_name
+                ]
+            st.session_state.saved_results.append({
+                "name": person_name,
+                "resultante_df": resultante_df.copy(),
+                "mean_dur": mean_dur,
+                "std_dur": std_dur,
+                "n_cycles": len(cycles_seg),
+            })
+            st.success(f"✅ '{person_name}' salvo! Total acumulado: {len(st.session_state.saved_results)} pessoa(s).")
+
+# ── Painel de resultados acumulados (fora do bloco de ciclos) ─────────────────
+if st.session_state.saved_results:
+    st.divider()
+    st.header(f"👥 Resultados acumulados — {len(st.session_state.saved_results)} pessoa(s)")
+
+    # Tabela resumo
+    summary = pd.DataFrame([{
+        "Nome": r["name"],
+        "Nº ciclos": r["n_cycles"],
+        "Duração média (ms)": round(r["mean_dur"], 1),
+        "DP (ms)": round(r["std_dur"], 1),
+        "CV (%)": round(r["std_dur"] / r["mean_dur"] * 100, 1) if r["mean_dur"] else 0,
+    } for r in st.session_state.saved_results])
+    st.dataframe(summary, use_container_width=True, hide_index=True)
+
+    col_exp, col_clear = st.columns([2, 1])
+    with col_exp:
+        buf_all = BytesIO()
+        with pd.ExcelWriter(buf_all, engine="openpyxl") as writer:
+            summary.to_excel(writer, sheet_name="Resumo", index=False)
+            for r in st.session_state.saved_results:
+                sheet_name = r["name"][:31]  # Excel limita a 31 chars
+                r["resultante_df"].to_excel(writer, sheet_name=sheet_name, index=False)
+        st.download_button(
+            "⬇️ Exportar todos os resultados (Excel)",
+            buf_all.getvalue(),
+            "resultados_grupo.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            type="primary",
+        )
+    with col_clear:
+        if st.button("🗑️ Limpar acumulados", use_container_width=True):
+            st.session_state.saved_results = []
+            st.rerun()
+
