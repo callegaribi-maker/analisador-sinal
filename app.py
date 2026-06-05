@@ -1,5 +1,6 @@
 import io
 import streamlit as st
+from io import BytesIO
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -284,25 +285,21 @@ if len(sorted_peaks) >= 2:
     cycles_df = pd.DataFrame(rows)
     st.dataframe(cycles_df, use_container_width=True, hide_index=True)
 
-    dl1, dl2 = st.columns(2)
-    with dl1:
-        st.download_button(
-            "⬇️ Baixar ciclos (CSV)",
-            cycles_df.to_csv(index=False).encode("utf-8"),
-            "ciclos.csv", "text/csv",
-            use_container_width=True,
-        )
-    with dl2:
-        peaks_df = pd.DataFrame(
-            [{"Pico": i + 1, "x": p["x"], "y": p["y"]}
-             for i, p in enumerate(sorted_peaks)]
-        )
-        st.download_button(
-            "⬇️ Baixar picos (CSV)",
-            peaks_df.to_csv(index=False).encode("utf-8"),
-            "picos.csv", "text/csv",
-            use_container_width=True,
-        )
+    peaks_df = pd.DataFrame(
+        [{"Pico": i + 1, "x": p["x"], "y": p["y"]}
+         for i, p in enumerate(sorted_peaks)]
+    )
+    buf_info = BytesIO()
+    with pd.ExcelWriter(buf_info, engine="openpyxl") as writer:
+        cycles_df.to_excel(writer, sheet_name="Ciclos", index=False)
+        peaks_df.to_excel(writer, sheet_name="Picos", index=False)
+    st.download_button(
+        "⬇️ Baixar ciclos e picos (Excel)",
+        buf_info.getvalue(),
+        "ciclos_picos.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
 
     # ── Extrair segmentos de ciclo ────────────────────────────────────────────
     cycles_seg = []
@@ -343,7 +340,7 @@ if len(sorted_peaks) >= 2:
                     opacity=0.75,
                 ))
             fig_orig.update_layout(
-                height=420,
+                width=650, height=650,
                 title="Ciclos sobrepostos — tempo relativo ao início de cada ciclo",
                 xaxis_title=f"{x_col} (relativo)",
                 yaxis_title=y_col,
@@ -351,11 +348,11 @@ if len(sorted_peaks) >= 2:
                 plot_bgcolor="white",
                 paper_bgcolor="white",
                 legend=dict(orientation="h", y=-0.2),
-                margin=dict(l=10, r=10, t=50, b=10),
+                margin=dict(l=10, r=10, t=50, b=80),
             )
             fig_orig.update_xaxes(showgrid=True, gridcolor="#eee")
             fig_orig.update_yaxes(showgrid=True, gridcolor="#eee")
-            st.plotly_chart(fig_orig, use_container_width=True)
+            st.plotly_chart(fig_orig, use_container_width=False)
 
         # ── Tab 2: duração normalizada ────────────────────────────────────────
         with tab2:
@@ -398,7 +395,7 @@ if len(sorted_peaks) >= 2:
             ))
 
             fig_norm.update_layout(
-                height=420,
+                width=650, height=650,
                 title="Ciclos normalizados (0→1) com curva média ± 1 DP",
                 xaxis_title="Fase normalizada",
                 yaxis_title=y_col,
@@ -406,11 +403,11 @@ if len(sorted_peaks) >= 2:
                 plot_bgcolor="white",
                 paper_bgcolor="white",
                 legend=dict(orientation="h", y=-0.2),
-                margin=dict(l=10, r=10, t=50, b=10),
+                margin=dict(l=10, r=10, t=50, b=80),
             )
             fig_norm.update_xaxes(showgrid=True, gridcolor="#eee")
             fig_norm.update_yaxes(showgrid=True, gridcolor="#eee")
-            st.plotly_chart(fig_norm, use_container_width=True)
+            st.plotly_chart(fig_norm, use_container_width=False)
 
         # ── Estatísticas de duração ───────────────────────────────────────────
         durations = [cyc["duration"] for cyc in cycles_seg]
@@ -440,9 +437,19 @@ if len(sorted_peaks) >= 2:
         st.dataframe(matrix_df.head(10), use_container_width=True, hide_index=True)
         st.caption(f"{N_NORM} pontos × {len(cycles_seg) + 4} colunas (ciclos + média + DP + bandas)")
 
+        buf_matrix = BytesIO()
+        with pd.ExcelWriter(buf_matrix, engine="openpyxl") as writer:
+            matrix_df.to_excel(writer, sheet_name="Matriz", index=False)
+            # Aba de estatísticas de duração
+            stats_df = pd.DataFrame({
+                "Ciclo": [cyc["label"] for cyc in cycles_seg] + ["MÉDIA", "DP"],
+                "Duração": [round(cyc["duration"], 3) for cyc in cycles_seg] + [round(mean_dur, 3), round(std_dur, 3)],
+            })
+            stats_df.to_excel(writer, sheet_name="Durações", index=False)
         st.download_button(
-            "⬇️ Exportar matriz completa (CSV)",
-            matrix_df.to_csv(index=False).encode("utf-8"),
-            "matriz_ciclos.csv", "text/csv",
+            "⬇️ Exportar matriz completa (Excel)",
+            buf_matrix.getvalue(),
+            "matriz_ciclos.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
